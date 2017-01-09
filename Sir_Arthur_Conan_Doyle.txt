@@ -1,0 +1,16 @@
+# from : https://www.gutenberg.org/wiki/
+https://www.gutenberg.org/files/244/244-0.txt A Study in Scarlet by Arthur Conan Doyle
+https://www.gutenberg.org/files/2097/2097.txt The Sign of the Four by Arthur Conan Doyle
+https://www.gutenberg.org/files/2852/2852-0.txt The Hound of the Baskervilles by Arthur Conan Doyle
+https://www.gutenberg.org/files/3289/3289-0.txt The Valley of Fear by Arthur Conan Doyle
+https://www.gutenberg.org/files/1661/1661.txt The Adventures of Sherlock Holmes by Arthur Conan Doyle
+https://www.gutenberg.org/files/834/834-0.txt The Memoirs of Sherlock Holmes by Arthur Conan Doyle
+https://www.gutenberg.org/files/221/221-0.txt The Return of Sherlock Holmes by Arthur Conan Doyle
+https://www.gutenberg.org/files/2343/2343.txt The Adventure of Wisteria Lodge by Arthur Conan Doyle
+https://www.gutenberg.org/files/2344/2344.txt The Adventure of the Cardboard Box by Arthur Conan Doyle
+https://www.gutenberg.org/files/2345/2345.txt The Adventure of the Red Circle by Arthur Conan Doyle
+https://www.gutenberg.org/files/2346/2346.txt The Adventure of the Bruce-Partington Plans by Arthur Conan Doyle
+https://www.gutenberg.org/files/2347/2347.txt The Adventure of the Dying Detective by Arthur Conan Doyle
+https://www.gutenberg.org/files/2348/2348.txt The Disappearance of Lady Frances Carfax by Arthur Conan Doyle
+https://www.gutenberg.org/files/2349/2349.txt The Adventure of the Devil's Foot by Arthur Conan Doyle
+https://www.gutenberg.org/files/2350/2350.txt His Last Bow: An Epilogue of Sherlock Holmes by Arthur Conan Doyle
