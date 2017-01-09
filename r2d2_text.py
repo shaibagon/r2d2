@@ -10,57 +10,13 @@ from threading import Thread, Lock
 from Queue import Queue
 import traceback
 
-# logging
+# logging (https://pypi.python.org/pypi/glog/0.1)
 import gflags, glog # GLOG logging
 FLAGS = gflags.FLAGS
 FLAGS(sys.argv)
 glog.init()
 glog.setLevel(glog.INFO)
 
-base_dir = '/mnt/data3/r2d2'
-
-char_map = {
-    '.': 0, #EOS/BOS
-    'a': 1,
-    'b': 2,
-    'c': 3,
-    'd': 4,
-    'e': 5,
-    'f': 6,
-    'g': 7,
-    'h': 8,
-    'i': 9,
-    'j': 10,
-    'k': 11,
-    'l': 12,
-    'm': 13,
-    'n': 14,
-    'o': 15,
-    'p': 16,
-    'q': 17,
-    'r': 18,
-    's': 19,
-    't': 20,
-    'u': 21,
-    'v': 22,
-    'w': 23,
-    'x': 24,
-    'y': 25,
-    'z': 26,
-    '0': 27,
-    '1': 28,
-    '2': 29,
-    '3': 30,
-    '4': 31,
-    '5': 32,
-    '6': 33,
-    '7': 34,
-    '8': 35,
-    '9': 36,
-    ' ': 37,
-    'U': 38 } # unknown character
-SORTED_CHARS = sorted(char_map.keys(), key=lambda k:char_map[k])
-DIM = len(char_map)
 
 #------------------------------------------------------------------------------------------------------
 # threaded input functionality
@@ -69,31 +25,20 @@ class dispatchThread(Thread):
     """
     read input file and output sentences to Q
     """
-    def __init__(self, sentencesQ, in_file_name):
+    def __init__(self, sentencesQ, seq_source):
         Thread.__init__(self)
         self.daemon = True
         self.sentencesQ = sentencesQ
-        self.in_file_name = in_file_name
+        self.source = seq_source
         self.start()
 
     def run(self):
-        # read once
-        with open(os.path.join(base_dir, self.in_file_name), 'r') as R:
-            inp = json.loads(R.read())
-        sentences = [s['caption'] for s in inp['sentences']]
-        self.print_stats(sentences)
         while True:
             try:
-                random.shuffle(sentences)
-                for s in sentences:
-                    self.sentencesQ.put(s.lower())
-                glog.info('dispatchThread: [{}] done epoch. reshuffling'.format(self.in_file_name))
+                for s in self.source:
+                    self.sentencesQ.put(s)
             except Exception as e:
                 glog.error('dispatchThread: got error ({}): {}\n{}'.format(type(e).__name__, e, traceback.format_exc()))
-
-    def print_stats(self, sentences):
-        sl = np.array([len(s) for s in sentences])
-        glog.info('\nDataset stats for {}: {} seq with [{}..{}] <{}>_2, <{}>_1 chars/seq\n'.format(self.in_file_name, sl.size, sl.min(), sl.max(), sl.mean(), np.median(sl)))
 
 class singleSequenceProvider(Thread):
     """
