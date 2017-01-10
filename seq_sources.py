@@ -29,6 +29,12 @@ class seq_globals_t(object):
         self.seqIterator = None
         self.singleSequenceProvider = None
 
+    def __str__(self):
+        str = ''
+        for a in ['eos','bos','unk','dim','chars','char_map']:
+            str += '{}={}\n'.format(a, self.__getattribute__(a.upper()))
+        return str
+
 SEQ_GLOBALS = seq_globals_t()
 
 class msr_vtt_textual_descriptions(object):
@@ -43,6 +49,14 @@ class msr_vtt_textual_descriptions(object):
         SEQ_GLOBALS.CHAR_MAP = {c:i for i,c in enumerate(SEQ_GLOBALS.CHARS)}
         SEQ_GLOBALS.seqIterator = msr_vtt_textual_descriptions.seqIterator
         SEQ_GLOBALS.singleSequenceProvider = msr_vtt_textual_descriptions.singleSequenceProvider
+
+    def __str__(self):
+        return 'GLOBALS\nchars={}\neos={}\nbos={}\nunk={}\ndim={}\nchar_map={}\n'.format(SEQ_GLOBALS.CHARS,
+                                                                                         SEQ_GLOBALS.EOS,
+                                                                                         SEQ_GLOBALS.BOS,
+                                                                                         SEQ_GLOBALS.UNK,
+                                                                                         SEQ_GLOBALS.DIM,
+                                                                                         SEQ_GLOBALS.CHAR_MAP)
 
     class seqIterator(object):
         def __init__(self, phase):
@@ -74,7 +88,9 @@ class msr_vtt_textual_descriptions(object):
                 glog.info('[{}] done epoch. reshuffling'.format(self.description))
                 random.shuffle(self.sentences)
                 self.si = 0
-            return self.sentences[self.si]
+            s = self.sentences[self.si]
+            self.si += 1
+            return s
 
     class singleSequenceProvider(Thread):
         """
@@ -122,15 +138,15 @@ def get_configuration(config='msr-vtt-v0'):
         msr_vtt_textual_descriptions()
         configuration = {
             'variant': 'vnl',
-            'input_params': {'train': {'seq_len': 200, 'batch_size': 75},
+            'input_params': {'train': {'seq_len': 150, 'batch_size': 75},
                              'test': {'seq_len': 50, 'batch_size': 50}},
             'layer_dims': [100, 75, 75, 75, SEQ_GLOBALS.DIM],
             'base_dir': base_dir,
             'test_niter': 1000,  # number of test iterations
             'test_interval': 5000,  # when to snap and test
             'train_niter': 100000,  # number of train iterations
-            'base_lr': 0.0001,
-            'debug': True
+            'base_lr': 0.01,
+            'debug': False
         }
     elif 'msr-vtt' in config:
         msr_vtt_textual_descriptions()
@@ -140,14 +156,14 @@ def get_configuration(config='msr-vtt-v0'):
             variant = 'v0'
         configuration = {
             'variant': variant,
-            'input_params': {'train': {'seq_len': 200, 'batch_size': 75},
+            'input_params': {'train': {'seq_len': 150, 'batch_size': 75},
                              'test': {'seq_len': 50, 'batch_size': 50}},
             'layer_dims': [100, 100, 100, 100, SEQ_GLOBALS.DIM],
             'base_dir': base_dir,
             'test_niter': 1000,  # number of test iterations
             'test_interval': 5000,  # when to snap and test
             'train_niter': 100000,  # number of train iterations
-            'base_lr': 0.001,
+            'base_lr': 0.01,
             'debug': False
         }
     elif 'debug' in config:  # 'debug-v0', 'debug-v1' ...

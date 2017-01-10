@@ -6,19 +6,11 @@ caffe.set_mode_gpu()
 caffe.set_device(0)
 from caffe import layers as L, params as P
 
-from seq_sources import SEQ_GLOBALS, msr_vtt_textual_descriptions, get_configuration
+from seq_sources import glog, SEQ_GLOBALS, get_configuration
 
 from threading import Thread
 from Queue import Queue
 import traceback
-
-# logging (https://pypi.python.org/pypi/glog/0.1)
-import gflags, glog  # GLOG logging
-
-FLAGS = gflags.FLAGS
-FLAGS(sys.argv)
-glog.init()
-glog.setLevel(glog.INFO)
 
 phase_str = {caffe.TRAIN:'train', caffe.TEST:'test'}
 # ------------------------------------------------------------------------------------------------------
@@ -126,192 +118,168 @@ class input_text_layer(caffe.Layer):
         # no back prop for input layer
         pass
 
-# ------------------------------------------------------------------------------------------------------
-# handling recurrent for train/validation
-# ------------------------------------------------------------------------------------------------------
-class recurrence_handler(caffe.Layer):
+#------------------------------------------------------------------------------------------------------
+# handling recurrent for train/validation via paramter weight sharing
+#------------------------------------------------------------------------------------------------------
+class parameter_in(caffe.Layer):
     def setup(self, bottom, top):
-        params = json.loads(self.param_str)
-        self.output_shapes = [tuple(os_) for os_ in params['output_shapes']]
-        self.debug = params.get('debug', False)
-        self.net = None
+        # keep as many params as "bottoms"
+        for _ in xrange(len(bottom)):
+            self.blobs.add_blob(1)
 
     def reshape(self, bottom, top):
-        for i, s in enumerate(self.output_shapes):
-            top[i].reshape(*s)
+        for bi in xrange(len(bottom)):
+            self.blobs[bi].reshape(*bottom[bi].data.shape)
+            self.blobs[bi].data[...] = 0 # reset
 
     def forward(self, bottom, top):
-        assert self.net is not None, "recurrence_handler: must call set_net before first forward"
-        dbg_str = ''
-        for i, nm in enumerate(self.output_names):
-            d = self.net.blobs[nm].data.copy()
-            if self.debug:
-                df = self.net.blobs[nm].diff.copy()
-                dbg_str += ' %s L1(%.2f, %.2f) L2(%.2f, %.2f)' % (nm, np.abs(d).sum(), np.abs(df).sum(),
-                                                                  (d ** 2).sum(), (df ** 2).sum())
-            top[i].data[...] = d
-        if self.debug:
-            glog.info('recurrence_handler.forward: {}'.format(dbg_str))
+        # store the inputs in the parameter blobs
+        for bi in xrange(len(bottom)):
+            self.blobs[bi].data[...] = bottom[bi].data
 
     def backward(self, top, propagate_down, bottom):
-        pass  # no backprop
+        # nothing to do
+        pass
 
-    def reset_hiddens(self):
-        assert self.net is not None, "recurrence_handler: must call set_net before resetting the hiddens"
-        for i, nm in enumerate(self.output_names):
-            self.net.blobs[nm].data[...] = np.zeros(self.net.blobs[nm].data.shape, dtype='f4')
+    def reset_params(self):
+        for pi in xrange(len(self.blobs)):
+            self.blobs[pi].data[...] = 0
+#------------------------------------------------------------------------------------------------------
+def count_net_params(net):
+    """
+    count the number of trainable/tunable parameters in a net
 
-    def set_net(self, net, prev_t_outout_blob_names):
-        self.output_names = prev_t_outout_blob_names
-        assert len(self.output_names) == len(self.output_shapes), \
-            "recurrence_handler: names and shapes must be eq len {} != {}".format(len(self.output_shapes), len(self.output_names))
-        # set output shapes
-        assert all([self.output_shapes[i]==net.blobs[nm].data.shape for i,nm in enumerate(self.output_names)]), \
-            "{} != {}".format(self.output_shapes, [net.blobs[nm].data.shape for nm in self.output_names])
-        self.net = net
-        self.reset_hiddens()
-
+    :param net:
+    :return:
+    """
+    np = {'all':0, 't0': 0}
+    for li in xrange(len(net.layers)):
+        l = net.layers[l]
+        for bi in xrange(len(l.blobs)):
+            np['all'] += l.blobs[bi].size
+            if 't0' in net._layer_names[li]:
+                np['t0'] += l.blobs[bi].size
+    return np
 # ------------------------------------------------------------------------------------------------------
 # Building blocks for R2D2
 # ------------------------------------------------------------------------------------------------------
-def residual_block(ns_, in_, name_prefix_, weight_prefix_, dim_):
+def residual_block(ns_, in_, name_prefix_, weight_prefix_, dim_, phase_):
     fc = L.InnerProduct(in_, name=name_prefix_ + '_fc',
                         inner_product_param={'bias_term': True,
                                              'num_output': dim_,
                                              'axis': -1,
-                                             'weight_filler': {'type': 'gaussian', 'std': 0.01},
+                                             'weight_filler': {'type': 'gaussian', 'std': 0.001},
                                              'bias_filler': {'type': 'constant', 'value': 0}},
                         param=[{'lr_mult': 1, 'decay_mult': 1, 'name': weight_prefix_ + '_fc_w'},
                                {'lr_mult': 2, 'decay_mult': 0, 'name': weight_prefix_ + '_fc_b'}])
     ns_.__setattr__(name_prefix_ + '_fc', fc)
-    bn = L.BatchNorm(fc, name=name_prefix_ + '_bn',
+    bn = L.BatchNorm(fc, name=name_prefix_ + '_bn', batch_norm_param={'use_global_stats': phase_==caffe.TEST},
                      param=[{'name': weight_prefix_ + '_bn_mu', 'lr_mult': 0, 'decay_mult': 0},
                             {'name': weight_prefix_ + '_bn_sig', 'lr_mult': 0, 'decay_mult': 0},
                             {'name': weight_prefix_ + '_bn_eps', 'lr_mult': 0, 'decay_mult': 0}])
     ns_.__setattr__(name_prefix_ + '_bn', bn)
     prelu = L.PReLU(bn, name=name_prefix_ + '_prelu',
                     prelu_param={'channel_shared': False, 'filler': {'type': 'constant', 'value': 0.01}},
-                    # share channels to avoid mess
-                    param={'lr_mult': 1, 'decay_mult': 50, 'name': weight_prefix_ + '_prelu'})
+                    param={'lr_mult': 1, 'decay_mult': 20, 'name': weight_prefix_ + '_prelu'})
     ns_.__setattr__(name_prefix_ + '_prelu', prelu)
     return ns_, prelu, name_prefix_ + '_prelu'
 
-def one_time_step_v0(ns_, x_t, hidden_prev_t_list, dims, prefix_):
+def one_time_step_v0(ns_, x_t, hidden_prev_t_list, dims, phase, prefix_):
     """
     v0 variant: top of unit_t-1 is added as residual to *bottom* of unit_t
-    :param ns_:
-    :param x_t:
-    :param hidden_prev_t_list:
-    :param prefix_:
-    :return:
     """
     assert (len(dims) == len(hidden_prev_t_list)+2), \
         "must provide dims for input layer, all hiddens and prediction layer.\nGot {} hiddens and {} dims".format(len(hidden_prev_t_list), len(dims))
     assert all([dims[0]==d_ for d_ in dims[:-1]]), "for v0 type R2D2 all dims (except last) must be identicle"
     # pass through an initial res block
-    ns_, o, _ = residual_block(ns_, x_t, prefix_ + '_in', 'rin', dim_=dims[0])
+    ns_, o, _ = residual_block(ns_, x_t, prefix_ + '_in', 'rin', dim_=dims[0], phase_=phase)
     outputs = []
     for li in xrange(len(hidden_prev_t_list)):
         # residual here
         e = L.Eltwise(o, hidden_prev_t_list[li][1], name=prefix_ + '_res{}'.format(li),
                       eltwise_param={'operation': P.Eltwise.SUM})
         ns_.__setattr__(prefix_ + '_res{}'.format(li), e)
-        ns_, o, h_t_name = residual_block(ns_, e, prefix_ + '_r{}'.format(li), 'v0_r{}'.format(li), dim_=dims[li+1])
+        ns_, o, h_t_name = residual_block(ns_, e, prefix_ + '_r{}'.format(li), 'v0_r{}'.format(li), dim_=dims[li+1], phase_=phase)
         outputs.append((h_t_name, o))
     # prediction layer
-    ns_, out, out_name = residual_block(ns_, outputs[-1][1], prefix_ + '_pred', 'pred', dim_=dims[-1])
+    ns_, out, out_name = residual_block(ns_, outputs[-1][1], prefix_ + '_pred', 'pred', dim_=dims[-1], phase_=phase)
     outputs.append((out_name, out))
     return ns_, outputs
 
 
-def one_time_step_v1(ns_, x_t, hidden_prev_t_list, dims, prefix_):
+def one_time_step_v1(ns_, x_t, hidden_prev_t_list, dims, phase, prefix_):
     """
     v1 variant: top of unit_t-1 (BEFORE residual update) is added as residual to *top* of unit_t
-    :param ns_:
-    :param x_t:
-    :param hidden_prev_t_list:
-    :param prefix_:
-    :return:
     """
     assert (len(dims) == len(hidden_prev_t_list)+2), \
         "must provide dims for input layer, all hiddens and prediction layer.\nGot {} hiddens and {} dims".format(len(hidden_prev_t_list), len(dims))
     # pass through an initial res block
-    ns_, e, _ = residual_block(ns_, x_t, prefix_ + '_in', 'rin', dim_=dims[0])
+    ns_, e, _ = residual_block(ns_, x_t, prefix_ + '_in', 'rin', dim_=dims[0], phase_=phase)
     outputs = []
     for li in xrange(len(hidden_prev_t_list)):
-        ns_, o, h_t_name = residual_block(ns_, e, prefix_ + '_r{}'.format(li), 'v1_r{}'.format(li), dim_=dims[li+1])
+        ns_, o, h_t_name = residual_block(ns_, e, prefix_ + '_r{}'.format(li), 'v1_r{}'.format(li), dim_=dims[li+1], phase_=phase)
         outputs.append((h_t_name, o))
         # residual here
         e = L.Eltwise(o, hidden_prev_t_list[li][1], name=prefix_ + '_res{}'.format(li),
                       eltwise_param={'operation': P.Eltwise.SUM})
         ns_.__setattr__(prefix_ + '_res{}'.format(li), e)
     # prediction layer
-    ns_, out, out_name = residual_block(ns_, e, prefix_ + '_pred', 'pred', dim_=dims[-1])
+    ns_, out, out_name = residual_block(ns_, e, prefix_ + '_pred', 'pred', dim_=dims[-1], phase_=phase)
     outputs.append((out_name, out))
     return ns_, outputs
 
 
-def one_time_step_v2(ns_, x_t, hidden_prev_t_list, dims, prefix_):
+def one_time_step_v2(ns_, x_t, hidden_prev_t_list, dims, phase, prefix_):
     """
     v2 variant: top of unit_t-1 (AFTER residual update) is added as residual to *top* of unit_t
-    :param ns_:
-    :param x_t:
-    :param hidden_prev_t_list:
-    :param prefix_:
-    :return:
     """
     assert (len(dims) == len(hidden_prev_t_list)+2), \
         "must provide dims for input layer, all hiddens and prediction layer.\nGot {} hiddens and {} dims".format(len(hidden_prev_t_list), len(dims))
     # pass through an initial res block
-    ns_, e, _ = residual_block(ns_, x_t, prefix_ + '_in', 'rin', dim_=dims[0])
+    ns_, e, _ = residual_block(ns_, x_t, prefix_ + '_in', 'rin', dim_=dims[0], phase_=phase)
     outputs = []
     for li in xrange(len(hidden_prev_t_list)):
-        ns_, o, h_t_name = residual_block(ns_, e, prefix_ + '_r{}'.format(li), 'v2_r{}'.format(li), dim_=dims[li+1])
+        ns_, o, h_t_name = residual_block(ns_, e, prefix_ + '_r{}'.format(li), 'v2_r{}'.format(li), dim_=dims[li+1], phase_=phase)
         # residual here
         e = L.Eltwise(o, hidden_prev_t_list[li][1], name=prefix_ + '_res{}'.format(li),
                       eltwise_param={'operation': P.Eltwise.SUM})
         ns_.__setattr__(prefix_ + '_res{}'.format(li), e)
         outputs.append((prefix_ + '_res{}'.format(li), e))
     # prediction layer
-    ns_, out, out_name = residual_block(ns_, outputs[-1][1], prefix_ + '_pred', 'pred', dim_=dims[-1])
+    ns_, out, out_name = residual_block(ns_, outputs[-1][1], prefix_ + '_pred', 'pred', dim_=dims[-1], phase_=phase)
     outputs.append((out_name, out))
     return ns_, outputs
 
 
-def one_time_step_vanilla(ns_, x_t, hidden_prev_t_list, dims, prefix_):
+def one_time_step_vanilla(ns_, x_t, hidden_prev_t_list, dims, phase, prefix_):
     """
     "vanilla" variant: top of unit_t-1 is *concat* to *bottom* of unit_t
     TODO: number of hidden variables should be tuned to roughly maintain the same number of variables.
-    :param ns_:
-    :param x_t:
-    :param hidden_prev_t_list:
-    :param prefix_:
-    :return:
     """
     assert (len(dims) == len(hidden_prev_t_list)+2), \
         "must provide dims for input layer, all hiddens and prediction layer.\nGot {} hiddens and {} dims".format(len(hidden_prev_t_list), len(dims))
     # pass through an initial res block
-    ns_, o, _ = residual_block(ns_, x_t, prefix_ + '_in', 'rin', dim_=dims[0])
+    ns_, o, _ = residual_block(ns_, x_t, prefix_ + '_in', 'rin', dim_=dims[0], phase_=phase)
     outputs = []
     for li in xrange(len(hidden_prev_t_list)):
         # concat instead of (+)
         e = L.Concat(o, hidden_prev_t_list[li][1], name=prefix_ + '_concat{}'.format(li),
                      concat_param={'axis': -1})
         ns_.__setattr__(prefix_ + '_concat{}'.format(li), e)
-        ns_, o, h_t_name = residual_block(ns_, e, prefix_ + '_r{}'.format(li), 'vnl_r{}'.format(li), dim_=dims[li+1])
+        ns_, o, h_t_name = residual_block(ns_, e, prefix_ + '_r{}'.format(li), 'vnl_r{}'.format(li), dim_=dims[li+1], phase_=phase)
         outputs.append((h_t_name, o))
     # prediction layer
-    ns_, out, out_name = residual_block(ns_, outputs[-1][1], prefix_ + '_pred', 'pred', dim_=dims[-1])
+    ns_, out, out_name = residual_block(ns_, outputs[-1][1], prefix_ + '_pred', 'pred', dim_=dims[-1], phase_=phase)
     outputs.append((out_name, out))
     return ns_, outputs
 
 
-def time_unroll(ns_, all_x, all_reset, variant, hidden_prev_t_list, dims, num_time_steps):
+def time_unroll(ns_, all_x, all_reset, variant, hidden_prev_t_list, dims, phase, num_time_steps):
     assert (len(dims) == len(hidden_prev_t_list)+2), \
         "must provide dims for input layer, all hiddens and prediction layer.\nGot {} hiddens and {} dims".format(len(hidden_prev_t_list), len(dims))
     pred = []
     for t in xrange(num_time_steps):
-        # reset
+        # reset: set prev time step hiddens when new sequence come along for this batch.
         reset_hidden_prev_t = []
         for li in xrange(len(hidden_prev_t_list)):
             rh = L.Scale(hidden_prev_t_list[li][1], all_reset[t], name='reset_h{}_t{}'.format(li, t),
@@ -319,18 +287,22 @@ def time_unroll(ns_, all_x, all_reset, variant, hidden_prev_t_list, dims, num_ti
             ns_.__setattr__('reset_h{}_t{}'.format(li, t), rh)
             reset_hidden_prev_t.append(('reset_h{}_t{}'.format(li, t), rh))
         if variant == 'v0':
-            ns_, outputs_t = one_time_step_v0(ns_, all_x[t], reset_hidden_prev_t, dims, prefix_='v0_t{}'.format(t))
+            ns_, outputs_t = one_time_step_v0(ns_, all_x[t], reset_hidden_prev_t, dims,
+                                              prefix_='v0_t{}'.format(t), phase=phase)
         elif variant == 'v1':
-            ns_, outputs_t = one_time_step_v1(ns_, all_x[t], reset_hidden_prev_t, dims, prefix_='v1_t{}'.format(t))
+            ns_, outputs_t = one_time_step_v1(ns_, all_x[t], reset_hidden_prev_t, dims,
+                                              prefix_='v1_t{}'.format(t), phase=phase)
         elif variant == 'v2':
-            ns_, outputs_t = one_time_step_v2(ns_, all_x[t], reset_hidden_prev_t, dims, prefix_='v2_t{}'.format(t))
+            ns_, outputs_t = one_time_step_v2(ns_, all_x[t], reset_hidden_prev_t, dims,
+                                              prefix_='v2_t{}'.format(t), phase=phase)
         elif variant in ('vnl', 'vanilla', 'rnn'):
-            ns_, outputs_t = one_time_step_vanilla(ns_, all_x[t], reset_hidden_prev_t, dims, prefix_='vnl_t{}'.format(t))
+            ns_, outputs_t = one_time_step_vanilla(ns_, all_x[t], reset_hidden_prev_t, dims,
+                                                   prefix_='vnl_t{}'.format(t), phase=phase)
         else:
             raise Exception('unknown variant {}'.format(variant))
         hidden_prev_t_list = outputs_t[:-1]  # last output is prediction
         pred.append(outputs_t[-1][1])
-    return ns_, pred, [n[0] for n in outputs_t[:-1]]
+    return ns_, pred, [n[1] for n in outputs_t[:-1]]
 
 
 def the_whole_shabang(phase, configuration):
@@ -354,22 +326,33 @@ def the_whole_shabang(phase, configuration):
         ns.__setattr__('x_t{}'.format(t), all_x[t])
         ns.__setattr__('reset_t{}'.format(t), all_h_reset[t])
 
-    # hiddens
-    rec_param = {'debug': configuration.get('debug', False),
-                 'output_shapes': [(params['batch_size'] ,h_) for h_ in layers_dims[1:-1]]}
-    hiddens = L.Python(name='recurrence_handler', ntop=num_hidden_layers,
-                       python_param={'module': 'r2d2_text',
-                                     'layer': 'recurrence_handler',
-                                     'param_str': json.dumps(rec_param)})
+    # # hiddens
+    # rec_param = {'debug': configuration.get('debug', False),
+    #              'output_shapes': [(params['batch_size'] ,h_) for h_ in layers_dims[1:-1]]}
+    # hiddens = L.Python(name='recurrence_handler', ntop=num_hidden_layers,
+    #                    python_param={'module': 'r2d2_text',
+    #                                  'layer': 'recurrence_handler',
+    #                                  'param_str': json.dumps(rec_param)})
     hidden_prev_t_list = []
-    input_hidden_names = []
     for li in xrange(num_hidden_layers):
-        ns.__setattr__('h{}_t0'.format(li), hiddens[li])
-        hidden_prev_t_list.append(('h{}_t0'.format(li), hiddens[li]))
-        input_hidden_names.append(hidden_prev_t_list[-1][0])
+        hin = L.Parameter(name='h{}_t0_{}'.format(li, phase_str[phase]),
+                          parameter_param={'shape':{'dim':[params['batch_size'], layers_dims[li+1]]}},
+                          param={'lr_mult': 0, 'decay_mult': 0, 'name': 'h{}_share_{}'.format(li, phase_str[phase])})
+        ns.__setattr__('h{}_t0'.format(li), hin)
+        hidden_prev_t_list.append(('h{}_t0'.format(li), hin))
     # unrolling all the temporal layers
-    ns, pred_layers_all_t, output_hidden_names = time_unroll(ns, all_x, all_h_reset, variant, hidden_prev_t_list,
-                                                             layers_dims, params['seq_len'])
+    ns, pred_layers_all_t, output_hiddens = time_unroll(ns, all_x, all_h_reset, variant, hidden_prev_t_list,
+                                                             layers_dims, phase, params['seq_len'])
+    # take care of hiddens of last time step...
+    param = []
+    inputs = []
+    for li in xrange(num_hidden_layers):
+        param.append({'lr_mult': 0, 'decay_mult': 0, 'name': 'h{}_share_{}'.format(li, phase_str[phase])})
+        inputs.append(output_hiddens[li])
+    ns.keeing_hidden_states = L.Python(*inputs, name='keeing_hidden_states_{}'.format(phase_str[phase]), ntop=0,
+                                       python_param={'module': 'r2d2_text', 'layer': 'parameter_in'},
+                                       param=param)
+
     # reshape all prediction layers and concat them into a single layer
     rs = []
     for t in xrange(params['seq_len']):
@@ -386,12 +369,10 @@ def the_whole_shabang(phase, configuration):
     ns.acc3 = L.Accuracy(ns.concat_all_pred, ns.label, name='acc3',
                          accuracy_param={'axis': -1, 'top_k': 3}, propagate_down=[False, False])
 
-    return str(ns.to_proto()), output_hidden_names
-
-
+    return str(ns.to_proto())
 
 #------------------------------------------------------------------------------------------------------
-def write_solver(prefix, configuration, train_net_str, val_net_str):
+def write_solver(prefix, configuration, train_net_str, val_net_str, init_test=False):
     train_file_name = os.path.join(configuration['base_dir'], prefix + '_train.prototxt')
     with open(train_file_name, 'w') as W:
         W.write('name: "train_{}"\n'.format(prefix))
@@ -408,7 +389,7 @@ def write_solver(prefix, configuration, train_net_str, val_net_str):
         W.write('test_iter: {}\n'.format(configuration.get('test_niter', 1000)))  # no automatic test, see http://stackoverflow.com/a/34387104/
         W.write('test_interval: {}\n'.format(configuration.get('test_interval', 5000)))
         W.write('snapshot: {}\n'.format(configuration.get('test_interval', 5000)))
-        W.write('test_initialization: true\n')
+        W.write('test_initialization: {}\n'.format('true' if init_test else 'false'))
         W.write('base_lr: {}\n'.format(configuration['base_lr']))
         W.write('lr_policy: "step"\n')
         W.write('stepsize: {}\n'.format(int(niter/2)))
@@ -424,7 +405,7 @@ def write_solver(prefix, configuration, train_net_str, val_net_str):
         W.write('snapshot_prefix: "{}"\n'.format(prefix))
         # regularization
         W.write('weight_decay: 0.00001\n')
-        W.write('regularization_type: "L2"\n')
+        W.write('regularization_type: "L1"\n')
         # W.write('debug_info: true\n')
     return solver_file_name
 
@@ -435,10 +416,10 @@ def train_r2d2_text(config='msr-vtt-v0', start_with=None):
 
     prefix = 'char_r2d2_' + config
 
-    train_net_str, train_hidden_out = the_whole_shabang(caffe.TRAIN, configuration)
-    test_net_str, test_hidden_outs = the_whole_shabang(caffe.TEST, configuration)
-    solver_file_name = write_solver(prefix, configuration, train_net_str, test_net_str)
-
+    train_net_str = the_whole_shabang(caffe.TRAIN, configuration)
+    test_net_str = the_whole_shabang(caffe.TEST, configuration)
+    solver_file_name = write_solver(prefix, configuration, train_net_str, test_net_str,
+                                    init_test=start_with_ is not None)
 
     solver = caffe.AdamSolver(solver_file_name)
 
@@ -453,8 +434,13 @@ def train_r2d2_text(config='msr-vtt-v0', start_with=None):
             solver.net.copy_from(start_with)
 
     # set recurrence handler
-    solver.net.layers[list(solver.net._layer_names).index('recurrence_handler')].set_net(solver.net, train_hidden_out)
-    solver.test_nets[0].layers[list(solver.test_nets[0]._layer_names).index('recurrence_handler')].set_net(solver.test_nets[0], test_hidden_outs)
+    # solver.net.layers[list(solver.net._layer_names).index('recurrence_handler')].set_net(solver.net, train_hidden_out)
+    # solver.test_nets[0].layers[list(solver.test_nets[0]._layer_names).index('recurrence_handler')].set_net(solver.test_nets[0], test_hidden_outs)
+
+    # some statistics
+    train_np = count_net_params(solver.net)
+    test_np = count_net_params(solver.test_nets[0])
+    glog.info('\nStarting training.\nTrain net has {} params\nValidationnet has {} params\n'.format(train_np, test_np))
 
     # run solver
     solver.solve()
