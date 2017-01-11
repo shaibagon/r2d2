@@ -49,6 +49,14 @@ class msr_vtt_textual_descriptions(object):
         SEQ_GLOBALS.CHAR_MAP = {c:i for i,c in enumerate(SEQ_GLOBALS.CHARS)}
         SEQ_GLOBALS.seqIterator = msr_vtt_textual_descriptions.seqIterator
 
+    def __str__(self):
+        return 'GLOBALS\nchars={}\neos={}\nbos={}\nunk={}\ndim={}\nchar_map={}\n'.format(SEQ_GLOBALS.CHARS,
+                                                                                         SEQ_GLOBALS.EOS,
+                                                                                         SEQ_GLOBALS.BOS,
+                                                                                         SEQ_GLOBALS.UNK,
+                                                                                         SEQ_GLOBALS.DIM,
+                                                                                         SEQ_GLOBALS.CHAR_MAP)
+
     class seqIterator(object):
         def __init__(self, phase):
             if phase.lower() == 'train':
