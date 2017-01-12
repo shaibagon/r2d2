@@ -37,12 +37,16 @@ def sample_sentence(net, temperatures):
     return sentences
 
 def sample_char_from_p(p, T):
-    try:
-        w = np.power(p.flatten(), T).astype('f8')
-        w = w / w.sum()
-        idx = np.random.choice(w.size, size=None, replace=False, p=w)
-    except ValueError:
-        idx = SEQ_GLOBALS.UNK
+    if T <= 0:
+        # MAP
+        idx = np.argmax(p)[0]
+    else:
+        try:
+            w = np.power(p.flatten(), T).astype('f8')
+            w = w / w.sum()
+            idx = np.random.choice(w.size, size=None, replace=False, p=w)
+        except ValueError:
+            idx = SEQ_GLOBALS.UNK
     return SEQ_GLOBALS.CHARS[idx], idx
 
 #------------------------------------------------------------------------------------------------------
@@ -114,6 +118,6 @@ if __name__ == '__main__':
     # get the weights
     glog.info('\n\nloading weights from {}\n\n'.format(weights_))
     net.copy_from(weights_)
-    T = [2,5,10]
-    for t,s in zip(T, sample_sentence(net, T)):
+    T_ = [2,5,10, -1]
+    for t,s in zip(T_, sample_sentence(net, T_)):
         print "t={}: |{}|".format(t, s)

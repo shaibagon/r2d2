@@ -154,11 +154,11 @@ def count_net_params(net):
     """
     np = {'all':0, 't0': 0}
     for li in xrange(len(net.layers)):
-        l = net.layers[l]
+        l = net.layers[li]
         for bi in xrange(len(l.blobs)):
-            np['all'] += l.blobs[bi].size
+            np['all'] += l.blobs[bi].data.size
             if 't0' in net._layer_names[li]:
-                np['t0'] += l.blobs[bi].size
+                np['t0'] += l.blobs[bi].data.size
     return np
 # ------------------------------------------------------------------------------------------------------
 # Building blocks for R2D2
@@ -391,12 +391,16 @@ def write_solver(prefix, configuration, train_net_str, val_net_str, init_test=Fa
         W.write('snapshot: {}\n'.format(configuration.get('test_interval', 5000)))
         W.write('test_initialization: {}\n'.format('true' if init_test else 'false'))
         W.write('base_lr: {}\n'.format(configuration['base_lr']))
-        W.write('lr_policy: "step"\n')
-        W.write('stepsize: {}\n'.format(int(niter/2)))
+        #W.write('lr_policy: "step"\n')
+        #W.write('stepsize: {}\n'.format(int(niter/2)))
         W.write('gamma: 0.1\n')
+        W.write('lr_policy: "multistep"\n')
+        W.write('stepvalue: {}\nstepvalue: {}\n'.format(int(niter/3),int(2*niter/3)))
         # W.write('lr_policy: "fixed"\n')
+
         # W.write('lr_policy: "poly"\n')
         # W.write('power: 1.5\n')
+
         W.write('max_iter: {}\n'.format(niter))  # "poly" policy must have 'max_iter' defined.
         W.write('display: 50\naverage_loss: 50\n')
         W.write('momentum: 0.95\nmomentum2: 0.999\n')
