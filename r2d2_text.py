@@ -36,6 +36,45 @@ class dispatchThread(Thread):
             except Exception as e:
                 glog.error('dispatchThread: got error ({}): {}\n{}'.format(type(e).__name__, e, traceback.format_exc()))
 
+class singleSequenceProvider(Thread):
+    """
+    get sequences from inQ and output chunks to sequenceQ
+    """
+
+    def __init__(self, inQ, outQ, seq_len):
+        Thread.__init__(self)
+        self.inQ = inQ
+        self.outQ = outQ
+        self.seq_len = seq_len
+        self.daemon = True
+        self.start()
+
+    def run(self):
+        to_data = []
+        to_label = []
+        while True:
+            try:
+                while len(to_data) < self.seq_len:
+                    s = self.inQ.get()
+                    l = [SEQ_GLOBALS.CHAR_MAP.get(c, SEQ_GLOBALS.UNK) for c in s]
+                    self.inQ.task_done()
+                    to_data.append(SEQ_GLOBALS.BOS)
+                    to_data += l
+                    to_label += l
+                    to_label.append(SEQ_GLOBALS.EOS)
+                # we have enough data to push to batch
+                while len(to_data) >= self.seq_len:
+                    data = np.zeros((self.seq_len, 1, SEQ_GLOBALS.DIM), dtype='f4')
+                    data[range(self.seq_len), 0, to_data[:self.seq_len]] = 1.0
+                    assert data.sum() == self.seq_len, "wrong hot vectors {} ones for {} rows".format(data.sum(),
+                                                                                                      self.seq_len)
+                    label = np.array(to_label[:self.seq_len])[:, None]
+                    self.outQ.put((data.copy(), label.copy()))
+                    del to_data[:self.seq_len]
+                    del to_label[:self.seq_len]
+            except Exception as e:
+                glog.error('singleSequenceProvider: got error ({}): {}\n{}'.format(type(e).__name__, e,
+                                                                                   traceback.format_exc()))
 
 class batchProvider(Thread):
     def __init__(self, inQs, outQ):
@@ -79,7 +118,7 @@ class input_text_layer(caffe.Layer):
         self.batchQ = Queue(100)
         for bi in xrange(self.batch_size):
             self.singleQs.append(Queue(100))
-            SEQ_GLOBALS.singleSequenceProvider(self.sentencesQ, self.singleQs[-1], self.seq_len)
+            singleSequenceProvider(self.sentencesQ, self.singleQs[-1], self.seq_len)
         batchProvider(self.singleQs, self.batchQ)
         self.iter_count = 0
 
