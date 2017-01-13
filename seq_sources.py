@@ -113,7 +113,7 @@ class acd_novels(object):
                 spl = b.split('***')[2:-6]
                 b = '\n\n'.join(spl)
                 target = 'test.txt' if bk == '2345.txt' else 'train.txt'
-                with open(os.path.join(dw,target), 'a+') as W:
+                with open(os.path.join(wd,target), 'a+') as W:
                     W.write('{}\n\n'.format(b))
         # read from cache
         with open(os.path.join(wd,'train.txt'), 'r') as R:
