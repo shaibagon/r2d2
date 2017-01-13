@@ -117,7 +117,7 @@ class acd_novels(object):
                     W.write('{}\n\n'.format(b))
         # read from cache
         with open(os.path.join(wd,'train.txt'), 'r') as R:
-            cahrs = '|'+ str(sorted(set(R.read()))) + '|'
+            chars = '|'+ str(sorted(set(R.read()))) + '|'
         return chars
 
     class seqIterator(object):
