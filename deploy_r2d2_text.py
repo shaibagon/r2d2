@@ -39,7 +39,7 @@ def sample_sentence(net, temperatures):
 def sample_char_from_p(p, T):
     if T <= 0:
         # MAP
-        idx = np.argmax(p)[0]
+        idx = np.argmax(p)
     else:
         try:
             w = np.power(p.flatten(), T).astype('f8')
@@ -121,3 +121,5 @@ if __name__ == '__main__':
     T_ = [2,5,10, -1]
     for t,s in zip(T_, sample_sentence(net, T_)):
         print "t={}: |{}|".format(t, s)
+    net.save(config_+'_deploy_weights.caffemodel')
+    net.save_hdf5(config_+'_deploy_weights.cafeemodel.h5')
