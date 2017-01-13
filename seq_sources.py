@@ -143,8 +143,11 @@ class acd_novels(object):
         SEQ_GLOBALS.singleSequenceProvider = msr_vtt_textual_descriptions.singleSequenceProvider
 
         # books
+        self.books = ['244.txt', '1661.txt', '2097.txt', '221-0.txt', '2343.txt', '2344.txt', '2345.txt', '2346.txt',
+                      '2347.txt', '2348.txt', '2349.txt', '2350.txt', '2852.txt', '3289-0.txt', '834-0.txt']
 
     def pre_process(self):
+
         pass
 
     class seqIterator(object):
