@@ -99,10 +99,6 @@ class acd_novels(object):
         SEQ_GLOBALS.CHAR_MAP = {c:i for i,c in enumerate(SEQ_GLOBALS.CHARS)}
         SEQ_GLOBALS.seqIterator = acd_novels.seqIterator
 
-        # books
-        self.books = ['244.txt', '1661.txt', '2097.txt', '221-0.txt', '2343.txt', '2344.txt', '2345.txt', '2346.txt',
-                      '2347.txt', '2348.txt', '2349.txt', '2350.txt', '2852.txt', '3289-0.txt', '834-0.txt']
-
     def pre_process(self):
         wd = os.path.join(base_dir, 'acd')
         if not os.path.isfile(os.path.join(wd,'train.txt')) or not os.path.isfile(os.path.join(wd,'test.txt')):
