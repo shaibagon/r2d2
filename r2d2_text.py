@@ -8,14 +8,23 @@ from caffe import layers as L, params as P
 
 from seq_sources import glog, SEQ_GLOBALS, get_configuration
 
-from threading import Thread
-from Queue import Queue
+from threading import Thread, Event
+from Queue import Queue, Empty
 import traceback
 
 phase_str = {caffe.TRAIN:'train', caffe.TEST:'test'}
 # ------------------------------------------------------------------------------------------------------
 # threaded input functionality
 # ------------------------------------------------------------------------------------------------------
+def empty_q(q):
+    # empty a Queue
+    while True:
+        try:
+            e = q.get(timeout=1)
+        except Empty:
+            return
+        q.task_done()
+
 class dispatchThread(Thread):
     """
     read input file and output sentences to Q
@@ -29,10 +38,9 @@ class dispatchThread(Thread):
         self.start()
 
     def run(self):
-        while True:
+        for s in self.source:
             try:
-                for s in self.source:
-                    self.sentencesQ.put(s)
+                self.sentencesQ.put(s)
             except Exception as e:
                 glog.error('dispatchThread: got error ({}): {}\n{}'.format(type(e).__name__, e, traceback.format_exc()))
 
@@ -41,18 +49,19 @@ class singleSequenceProvider(Thread):
     get sequences from inQ and output chunks to sequenceQ
     """
 
-    def __init__(self, inQ, outQ, seq_len):
+    def __init__(self, inQ, outQ, syncEvent, seq_len):
         Thread.__init__(self)
         self.inQ = inQ
         self.outQ = outQ
         self.seq_len = seq_len
+        self.syncEvent = syncEvent
         self.daemon = True
         self.start()
 
     def run(self):
         to_data = []
         to_label = []
-        while True:
+        while self.syncEvent.is_set():
             try:
                 while len(to_data) < self.seq_len:
                     s = self.inQ.get()
@@ -77,15 +86,16 @@ class singleSequenceProvider(Thread):
                                                                                    traceback.format_exc()))
 
 class batchProvider(Thread):
-    def __init__(self, inQs, outQ):
+    def __init__(self, inQs, outQ, syncEvent):
         Thread.__init__(self)
         self.inQs = inQs
         self.outQ = outQ
+        self.syncEvent = syncEvent
         self.daemon = True
         self.start()
 
     def run(self):
-        while True:
+        while self.syncEvent.is_set():
             try:
                 data = []
                 label = []
@@ -100,27 +110,36 @@ class batchProvider(Thread):
                 glog.error('batchProvider: got error ({}): {}\n{}'.format(type(e).__name__, e, traceback.format_exc()))
 
 
+# ------------------------------------------------------------------------------------------------------
 class input_text_layer(caffe.Layer):
     def setup(self, bottom, top):
         # params
         params = json.loads(self.param_str)
         self.batch_size = int(params['batch_size'])
         self.seq_len = int(params['seq_len'])
+        self.reset_every_n_iterations = params.get('reset_every', None)
         assert len(bottom) == 0, "input_text_layer: input layer no bottoms"
         assert len(top) == 2 * self.seq_len + 1, "input_text_layer: 2*{}+1 tops".format(self.seq_len)
 
         # set threads in motion
-        # thread to read from file
         self.sentencesQ = Queue(5000)
-        dispatchThread(self.sentencesQ, SEQ_GLOBALS.seqIterator(phase_str[self.phase]))
-        # threads to write per parralele seq in minibatch
-        self.singleQs = []
         self.batchQ = Queue(100)
-        for bi in xrange(self.batch_size):
-            self.singleQs.append(Queue(100))
-            singleSequenceProvider(self.sentencesQ, self.singleQs[-1], self.seq_len)
-        batchProvider(self.singleQs, self.batchQ)
+        self.singleQs = [Queue(100) for _ in xrange(self.batch_size)]
+
+        # thread to read from file - this thread is not sync it always run
+        dispatchThread(self.sentencesQ, SEQ_GLOBALS.seqIterator(phase_str[self.phase]))
+
+        # threads to write per parralele seq in minibatch
+        self.syncEvent = Event()  # init to False
+        self.syncEvent.set() # make it True
+        self.set_threads_in_motion()
         self.iter_count = 0
+
+    def set_threads_in_motion(self):
+        self.sync_threads = []
+        for bi in xrange(self.batch_size):
+            self.sync_threads.append( singleSequenceProvider(self.sentencesQ, self.singleQs[bi], self.syncEvent, self.seq_len) )
+        self.sync_threads.append( batchProvider(self.singleQs, self.batchQ, self.syncEvent) )
 
     def q_status(self, iter_):
         avg_qs = sum([q.qsize() for q in self.singleQs]) / float(len(self.singleQs))
@@ -128,6 +147,19 @@ class input_text_layer(caffe.Layer):
             'Q STATUS [{}] at iter={}: |sentencesQ|={} <|singleQs|>={} |batchQ|={}'.format(phase_str[self.phase], iter_,
                                                                                            self.sentencesQ.qsize(),
                                                                                            avg_qs, self.batchQ.qsize()))
+    def reset_all_queues(self):
+        self.syncEvent.clear() # make all threads hang
+        self.q_status(self.iter_count)
+        for t in self.sync_threads:
+            t.wait()
+        # clean all queues
+        empty_q(self.batchQ)
+        for q in self.singleQs:
+            empty_q(q)
+        self.syncEvent.set() # clear the flag, let the threads run again
+        self.set_threads_in_motion()
+        glog.info('done reseting threads and queues')
+        self.q_status(self.iter_count)
 
     def reshape(self, bottom, top):
         for t in xrange(self.seq_len):
@@ -142,6 +174,7 @@ class input_text_layer(caffe.Layer):
         if (self.iter_count % 100) == 0:
             self.q_status(self.iter_count)
         self.iter_count += 1
+        self.syncEvent.wait() # make sure reset done.
         batch = self.batchQ.get(block=True, timeout=60)  # do not wait longer than 60 sec for a batch...
         data = batch['data'].copy()
         label = batch['label'].copy()
@@ -152,6 +185,11 @@ class input_text_layer(caffe.Layer):
             # reset
             top[t + self.seq_len].data[...] = 1.0 - data[t, :, SEQ_GLOBALS.BOS]  # seq with s[t]==BOS reset is 0
         top[2 * self.seq_len].data[...] = label
+        # do we need to reset?
+        if self.reset_every_n_iterations is not None and (self.iter_count%self.reset_every_n_iterations) == 0:
+            glog.info('Done {} iterations, resetting!'.format(self.iter_count))
+            Thread(target=self.reset_all_queues)
+
 
     def backward(self, top, propagate_down, bottom):
         # no back prop for input layer
@@ -354,6 +392,8 @@ def the_whole_shabang(phase, configuration):
 
     # inputs (all time steps and hidden states):
     params = configuration['input_params'][phase_str[phase]]
+    if phase == caffe.TEST:
+        params['reset_every'] = configuration['test_niter']
     all_inputs = L.Python(name='input', ntop=2 * params['seq_len'] + 1,
                           python_param={'module': 'r2d2_text', 'layer': 'input_text_layer',
                                         'param_str': json.dumps(params)},
