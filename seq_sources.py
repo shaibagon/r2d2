@@ -49,7 +49,6 @@ class msr_vtt_textual_descriptions(object):
         SEQ_GLOBALS.CHAR_MAP = {c:i for i,c in enumerate(SEQ_GLOBALS.CHARS)}
         SEQ_GLOBALS.seqIterator = msr_vtt_textual_descriptions.seqIterator
 
-
     class seqIterator(object):
         def __init__(self, phase):
             if phase.lower() == 'train':
@@ -268,8 +267,8 @@ def get_configuration(config='msr-vtt-v0'):
             'base_dir': base_dir,
             'test_niter': 5000,  # number of test iterations
             'test_interval': 10000,  # when to snap and test
-            'train_niter': 10000000,  # number of train iterations
-            'base_lr': 0.01,
+            'train_niter': 100000,  # number of train iterations
+            'base_lr': 0.001,
             'debug': False
         }
     elif 'acd' in config:
