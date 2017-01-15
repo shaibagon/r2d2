@@ -268,7 +268,7 @@ def get_configuration(config='msr-vtt-v0'):
             'test_niter': 5000,  # number of test iterations
             'test_interval': 10000,  # when to snap and test
             'train_niter': 100000,  # number of train iterations
-            'base_lr': 0.001,
+            'base_lr': 0.01,
             'debug': False
         }
     elif 'acd' in config:
