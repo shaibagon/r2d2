@@ -122,9 +122,9 @@ class input_text_layer(caffe.Layer):
         assert len(top) == 2 * self.seq_len + 1, "input_text_layer: 2*{}+1 tops".format(self.seq_len)
 
         # set threads in motion
-        self.sentencesQ = Queue(5000)
-        self.batchQ = Queue(100)
-        self.singleQs = [Queue(100) for _ in xrange(self.batch_size)]
+        self.sentencesQ = Queue(100)
+        self.batchQ = Queue(20)
+        self.singleQs = [Queue(10) for _ in xrange(self.batch_size)]
 
         # thread to read from file - this thread is not sync it always run
         dispatchThread(self.sentencesQ, SEQ_GLOBALS.seqIterator(phase_str[self.phase]))
