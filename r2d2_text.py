@@ -138,8 +138,8 @@ class input_text_layer(caffe.Layer):
     def set_threads_in_motion(self):
         self.sync_threads = []
         for bi in xrange(self.batch_size):
-            self.sync_threads.append( singleSequenceProvider(self.sentencesQ, self.singleQs[bi], self.seq_len) )
-        self.sync_threads.append( batchProvider(self.singleQs, self.batchQ) )
+            self.sync_threads.append( singleSequenceProvider(self.sentencesQ, self.singleQs[bi], self.syncEvent, self.seq_len) )
+        self.sync_threads.append( batchProvider(self.singleQs, self.batchQ, self.syncEvent) )
 
     def q_status(self, iter_):
         avg_qs = sum([q.qsize() for q in self.singleQs]) / float(len(self.singleQs))
@@ -174,7 +174,7 @@ class input_text_layer(caffe.Layer):
         if (self.iter_count % 100) == 0:
             self.q_status(self.iter_count)
         self.iter_count += 1
-        wait(self.syncEvent) # make sure reset done.
+        self.syncEvent.wait() # make sure reset done.
         batch = self.batchQ.get(block=True, timeout=60)  # do not wait longer than 60 sec for a batch...
         data = batch['data'].copy()
         label = batch['label'].copy()

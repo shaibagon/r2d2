@@ -156,14 +156,14 @@ def get_configuration(config='msr-vtt-v0'):
         msr_vtt_textual_descriptions()
         configuration = {
             'variant': 'vnl',
-            'input_params': {'train': {'seq_len': 150, 'batch_size': 75},
-                             'test': {'seq_len': 50, 'batch_size': 50}},
+            'input_params': {'train': {'seq_len': 150, 'batch_size': 50},
+                             'test': {'seq_len': 50, 'batch_size': 25}},
             'layer_dims': [500, 375, 375, 375, SEQ_GLOBALS.DIM],
             'base_dir': base_dir,
             'test_niter': 1000,  # number of test iterations
             'test_interval': 10000,  # when to snap and test
-            'train_niter': 10000000,  # number of train iterations
-            'base_lr': 0.01,
+            'train_niter': 100000,  # number of train iterations
+            'base_lr': 0.001,
             'debug': False
         }
     elif 'msr-vtt' in config:
@@ -174,13 +174,13 @@ def get_configuration(config='msr-vtt-v0'):
             variant = 'v0'
         configuration = {
             'variant': variant,
-            'input_params': {'train': {'seq_len': 150, 'batch_size': 75},
-                             'test': {'seq_len': 50, 'batch_size': 50}},
+            'input_params': {'train': {'seq_len': 150, 'batch_size': 50},
+                             'test': {'seq_len': 50, 'batch_size': 25}},
             'layer_dims': [500, 500, 500, 500, SEQ_GLOBALS.DIM],
             'base_dir': base_dir,
             'test_niter': 1000,  # number of test iterations
             'test_interval': 10000,  # when to snap and test
-            'train_niter': 10000000,  # number of train iterations
+            'train_niter': 100000,  # number of train iterations
             'base_lr': 0.01,
             'debug': False
         }
