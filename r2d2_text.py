@@ -526,10 +526,13 @@ def train_r2d2_text(config='msr-vtt-v0', start_with=None):
     glog.info('\nStarting training.\nTrain net has {} params\nValidationnet has {} params\n'.format(train_np, test_np))
 
     # run solver
-    solver.solve()
-
-    # save final result
-    solver.net.save('./{}_final_{}.caffemodel'.format(prefix, solver.iter))
+    try:
+        solver.solve()
+    except KeyboardInterrupt:
+        glog.info('stopped by KeyboardInterrupt at iter {}'.format(solver.iter))
+    finally:
+        # save final result
+        solver.net.save('./{}_final_{}.caffemodel'.format(prefix, solver.iter))
 
 
 if __name__ == '__main__':
