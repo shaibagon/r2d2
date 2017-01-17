@@ -127,7 +127,7 @@ class acd_novels(object):
             # read once
             with open(os.path.join(base_dir, in_file_name), 'r') as R:
                 inp = R.read()
-            self.paragraphs = inp.split('\n\n')
+            self.paragraphs = inp.split('\n***\n')
             random.shuffle(self.paragraphs)
             self.print_stats()
             self.si = 0
