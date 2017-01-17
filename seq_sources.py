@@ -110,10 +110,10 @@ class acd_novels(object):
                 b = '\n\n'.join(spl)
                 target = 'test.txt' if bk == '2345.txt' else 'train.txt'
                 with open(os.path.join(wd,target), 'a+') as W:
-                    W.write('{}\n\n'.format(b))
+                    W.write('{}\n***\n'.format(b))
         # read from cache
         with open(os.path.join(wd,'train.txt'), 'r') as R:
-            chars = '|'+ str(sorted(set(R.read()))) + '|'
+            chars = ['***']+ list(sorted(set(R.read()))) + ['*X*']
         return chars
 
     class seqIterator(object):
@@ -122,12 +122,12 @@ class acd_novels(object):
                 in_file_name = os.path.join('acd', 'train.txt')
                 self.description = 'Sir ACD train'
             elif phase.lower() == 'test':
-                in_file_name = os.path.join('acd', 'train.txt')
+                in_file_name = os.path.join('acd', 'test.txt')
                 self.description = 'Sir ACD test'
             # read once
             with open(os.path.join(base_dir, in_file_name), 'r') as R:
                 inp = R.read()
-            self.paragraphs = inp.split('\n\n')
+            self.paragraphs = inp.split('\n***\n')
             random.shuffle(self.paragraphs)
             self.print_stats()
             self.si = 0
@@ -280,13 +280,13 @@ def get_configuration(config='msr-vtt-v0'):
             variant = 'v0'
         configuration = {
             'variant': variant,
-            'input_params': {'train': {'seq_len': 300, 'batch_size': 5},
+            'input_params': {'train': {'seq_len': 300, 'batch_size': 14},
                              'test': {'seq_len': 50, 'batch_size': 1}},
-            'layer_dims': [300, 300, 300, 300, 300, 300, SEQ_GLOBALS.DIM],
+            'layer_dims': [100, 100, 100, 100, 100, 100, SEQ_GLOBALS.DIM],
             'base_dir': base_dir,
             'test_niter': 5000,  # number of test iterations
-            'test_interval': 10000,  # when to snap and test
-            'train_niter': 10000000,  # number of train iterations
+            'test_interval': 5000,  # when to snap and test
+            'train_niter': 100000,  # number of train iterations
             'base_lr': 0.01,
             'debug': False
         }
