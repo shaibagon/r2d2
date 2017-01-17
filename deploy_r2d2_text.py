@@ -116,7 +116,6 @@ if __name__ == '__main__':
     weights_ = sys.argv[2]
     net = make_deploy_net(config_)
     # get the weights
-    glog.info('\n\nloading weights from {}\n\n'.format(weights_))
     net.copy_from(weights_)
     T_ = [2,5,10, -1]
     for t,s in zip(T_, sample_sentence(net, T_)):
