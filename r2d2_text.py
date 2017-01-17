@@ -460,7 +460,7 @@ def write_solver(prefix, configuration, train_net_str, val_net_str, init_test=Fa
     with open(val_file_name, 'w') as W:
         W.write('name: "val_{}"\n'.format(prefix))
         W.write(val_net_str)
-    solver_file_name = os.path.join(configuration['base_dir'], prefix + '_solver.protoxt')
+    solver_file_name = os.path.join(configuration['base_dir'], prefix + '_solver.prototxt')
     niter = configuration.get('train_niter', 100000)
     with open(solver_file_name, 'w') as W:
         W.write('train_net: "{}"\n'.format(train_file_name))
