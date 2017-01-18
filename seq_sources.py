@@ -263,7 +263,7 @@ def get_configuration(config='msr-vtt-v0'):
             'variant': variant,
             'input_params': {'train': {'seq_len': 300, 'batch_size': 5},
                              'test': {'seq_len': 50, 'batch_size': 1}},
-            'layer_dims': [300, 300, 300, 300, 300, 300, SEQ_GLOBALS.DIM],
+            'layer_dims': [100, 100, 100, 100, 100, 100, SEQ_GLOBALS.DIM],
             'base_dir': base_dir,
             'test_niter': 5000,  # number of test iterations
             'test_interval': 10000,  # when to snap and test
