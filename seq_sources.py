@@ -193,14 +193,15 @@ def get_configuration(config='msr-vtt-v0'):
             variant = 'v0'
         configuration = {
             'variant': variant,
-            'input_params': {'train': {'seq_len': 500, 'batch_size': 5},
+            'input_params': {'train': {'seq_len': 1000, 'batch_size': 11},
                              'test': {'seq_len': 50, 'batch_size': 1}},
             'layer_dims': [200, 200, 200, 200, SEQ_GLOBALS.DIM],
             'base_dir': base_dir,
             'test_niter': 5000,  # number of test iterations
             'test_interval': 10000,  # when to snap and test
             'train_niter': 100000,  # number of train iterations
-            'base_lr': 0.01,
+ 	    'iter_size': 7,
+            'base_lr': 0.001,
             'debug': False
         }
     elif 'debug' in config:  # 'debug-v0', 'debug-v1' ...

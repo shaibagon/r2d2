@@ -465,6 +465,7 @@ def write_solver(prefix, configuration, train_net_str, val_net_str, init_test=Fa
     with open(solver_file_name, 'w') as W:
         W.write('train_net: "{}"\n'.format(train_file_name))
         W.write('test_net: "{}"\n'.format(val_file_name))
+	W.write('iter_size: {}\n'.format(configuration.get('iter_size', 1)))
         W.write('test_iter: {}\n'.format(configuration.get('test_niter', 1000)))  # no automatic test, see http://stackoverflow.com/a/34387104/
         W.write('test_interval: {}\n'.format(configuration.get('test_interval', 5000)))
         W.write('snapshot: {}\n'.format(configuration.get('test_interval', 5000)))
